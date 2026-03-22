@@ -1,0 +1,161 @@
+/* ── Access Log Component ─────────────────────── */
+.access-log {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.log-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.log-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.log-status {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+}
+
+.log-status--live {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--accent-green);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.log-status--off {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+
+.status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.log-status--live .status-dot {
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.log-empty {
+    padding: 4rem 2rem;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.log-pulse {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    font-size: 2rem;
+    margin: 0 auto 1.5rem;
+}
+
+.pulse-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid var(--accent-cyan);
+    animation: pulse-ring 2s ease-out infinite;
+}
+
+@keyframes pulse-ring {
+    0% {
+        transform: scale(0.8);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scale(1.6);
+        opacity: 0;
+    }
+}
+
+.log-list {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.log-item {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    transition: var(--transition);
+}
+
+.log-item:last-child {
+    border-bottom: none;
+}
+
+.log-item:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.log-item--new {
+    background: rgba(0, 212, 255, 0.04);
+}
+
+.log-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+}
+
+.log-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.log-top {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.log-time {
+    margin-left: auto;
+}
+
+.log-body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.log-body code {
+    color: var(--accent-cyan);
+    font-family: monospace;
+}
+
+.log-tx {
+    color: var(--text-muted);
+}
+
+.log-tx code {
+    font-family: monospace;
+    font-size: 0.78rem;
+}
