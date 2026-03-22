@@ -278,6 +278,13 @@ export default function DoctorDashboard() {
                                 <div className="card" style={{ marginBottom: "1.5rem" }}>
                                     <h3>Records for {viewingRecords.patient?.name}</h3>
                                     <p className="text-sm text-muted">{viewingRecords.patient?.email}</p>
+                                    <button 
+                                        className="btn btn-outline btn-sm" 
+                                        onClick={() => setActiveTab("log")}
+                                        style={{ marginTop: "1rem" }}
+                                    >
+                                        ⛓ Generate Live Blockchain Log
+                                    </button>
                                 </div>
                                 <div className="records-grid">
                                     {viewingRecords.records.length === 0 ? (
@@ -293,9 +300,15 @@ export default function DoctorDashboard() {
                                                 </div>
                                                 <div className="record-info">
                                                     <h4 className="truncate">{r.originalName}</h4>
-                                                    <p className="text-sm text-muted">{r.description || "No description"}</p>
-                                                    <p className="text-sm text-muted hash-text">
-                                                        SHA-256: {r.fileHash.slice(0, 16)}...
+                                                    <button 
+                                                        style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', color: 'var(--accent-blue)', textDecoration: 'underline' }} 
+                                                        className="text-sm"
+                                                        onClick={() => alert(`Medicine Description:\n\n${r.description || "No description provided."}`)}
+                                                    >
+                                                        Medicine Description 
+                                                    </button>
+                                                    <p className="text-sm text-muted hash-text" style={{ marginTop: '0.5rem' }}>
+                                                        SHA-256: {r.fileHash?.slice(0, 16) || "N/A"}...
                                                     </p>
                                                     <div className="record-meta">
                                                         <span className="text-sm text-muted">
