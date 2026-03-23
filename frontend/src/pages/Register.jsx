@@ -1,48 +1,24 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { register as registerApi } from "../services/api";
 import { useAuth } from "../context/AuthContext";
-import { connectWallet } from "../services/blockchain";
+import { connectWallet, registerOnChain } from "../services/blockchain";
 import "./Auth.css";
 
 export default function Register() {
     const [form, setForm] = useState({
         name: "",
-        email: "",
-        password: "",
-        role: "patient",
-        specialization: "",
-        licenseNumber: "",
-        walletAddress: "",
+        role: "patient"
     });
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
-    const [connectingWallet, setConnectingWallet] = useState(false);
-    const { loginUser } = useAuth();
+    const { loadSession } = useAuth();
     const navigate = useNavigate();
 
     const handle = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
-    const handleConnectWallet = async () => {
-        setConnectingWallet(true);
-        try {
-            const addr = await connectWallet();
-            setForm((f) => ({ ...f, walletAddress: addr }));
-        } catch (err) {
-            alert(err.message);
-        } finally {
-            setConnectingWallet(false);
-        }
-    };
-
     const validate = () => {
-        if (form.password.length < 6) {
-            setError("Password must be at least 6 characters");
-            return false;
-        }
-        // Basic email regex
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-            setError("Invalid email address");
+        if (!form.name || form.name.trim().length < 2) {
+            setError("Please enter a valid name");
             return false;
         }
         return true;
@@ -54,15 +30,16 @@ export default function Register() {
         setError("");
         setLoading(true);
         try {
-            const { data } = await registerApi(form);
-            loginUser(data.token, data.user);
-            navigate(data.user.role === "patient" ? "/patient" : "/doctor");
+            // First connect wallet
+            const addr = await connectWallet();
+            // Then register them on blockchain
+            await registerOnChain(form.name, form.role);
+            
+            // Reload context session
+            await loadSession(addr);
+            navigate("/");
         } catch (err) {
-            if (err.response?.status === 500) {
-                setError("Server Error (500): Database connection failed. Please check backend logs.");
-            } else {
-                setError(err.response?.data?.message || "Registration failed. Try with different email.");
-            }
+            setError(err.message || "Registration failed. Transaction might have been reverted.");
         } finally {
             setLoading(false);
         }
@@ -81,11 +58,13 @@ export default function Register() {
                 </div>
 
                 <h2 className="auth-title">Create Account</h2>
+                <p className="text-muted text-sm mt-1" style={{ textAlign: 'center' }}>
+                    Your account is permanently linked to your Wallet Address.
+                </p>
 
                 {error && <div className="alert alert-error mt-2">{error}</div>}
 
-                <form onSubmit={submit} className="auth-form">
-                    {/* Role selector */}
+                <form onSubmit={submit} className="auth-form" style={{ marginTop: '2rem' }}>
                     <div className="role-selector">
                         {["patient", "doctor"].map((r) => (
                             <button
@@ -99,54 +78,13 @@ export default function Register() {
                         ))}
                     </div>
 
-                    <div className="form-grid">
-                        <div className="form-group">
-                            <label className="form-label">Full Name</label>
-                            <input className="form-input" name="name" placeholder="John Doe" value={form.name} onChange={handle} required />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Email</label>
-                            <input className="form-input" type="email" name="email" placeholder="email@example.com" value={form.email} onChange={handle} required />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Password</label>
-                            <input className="form-input" type="password" name="password" placeholder="Min 6 characters" value={form.password} onChange={handle} required minLength={6} />
-                        </div>
-
-                        {form.role === "doctor" && (
-                            <>
-                                <div className="form-group">
-                                    <label className="form-label">Specialization</label>
-                                    <input className="form-input" name="specialization" placeholder="Cardiology, Neurology..." value={form.specialization} onChange={handle} />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">License Number</label>
-                                    <input className="form-input" name="licenseNumber" placeholder="MED-12345" value={form.licenseNumber} onChange={handle} />
-                                </div>
-                            </>
-                        )}
-
-                        {/* Wallet */}
-                        <div className="form-group" style={{ gridColumn: "1 / -1" }}>
-                            <label className="form-label">MetaMask Wallet (optional)</label>
-                            <div className="wallet-input-row">
-                                <input
-                                    className="form-input"
-                                    name="walletAddress"
-                                    placeholder="0x..."
-                                    value={form.walletAddress}
-                                    onChange={handle}
-                                    style={{ flex: 1 }}
-                                />
-                                <button type="button" className="btn btn-outline btn-sm" onClick={handleConnectWallet} disabled={connectingWallet}>
-                                    {connectingWallet ? <span className="spinner" /> : "🦊 Connect"}
-                                </button>
-                            </div>
-                        </div>
+                    <div className="form-group">
+                        <label className="form-label">Full Name</label>
+                        <input className="form-input" name="name" placeholder="John Doe" value={form.name} onChange={handle} required />
                     </div>
 
-                    <button className="btn btn-primary btn-lg w-full" disabled={loading}>
-                        {loading ? <span className="spinner" /> : "Create Account"}
+                    <button className="btn btn-primary btn-lg w-full" disabled={loading} style={{ marginTop: '1rem' }}>
+                        {loading ? <span className="spinner" /> : "🦊 Connect & Register on Blockchain"}
                     </button>
                 </form>
 

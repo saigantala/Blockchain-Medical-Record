@@ -87,9 +87,9 @@
         },
         {
           "indexed": false,
-          "internalType": "bytes32",
-          "name": "fileHash",
-          "type": "bytes32"
+          "internalType": "string",
+          "name": "ipfsHash",
+          "type": "string"
         },
         {
           "indexed": false,
@@ -113,6 +113,12 @@
         {
           "indexed": false,
           "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
           "name": "role",
           "type": "string"
         }
@@ -123,14 +129,52 @@
     {
       "inputs": [
         {
-          "internalType": "bytes32",
-          "name": "fileHash",
-          "type": "bytes32"
+          "internalType": "string",
+          "name": "ipfsHash",
+          "type": "string"
         }
       ],
       "name": "addRecord",
       "outputs": [],
       "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "allDoctors",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "allPatients",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {
@@ -158,6 +202,32 @@
       "type": "function"
     },
     {
+      "inputs": [],
+      "name": "getAllDoctors",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "",
+          "type": "address[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getAllPatients",
+      "outputs": [
+        {
+          "internalType": "address[]",
+          "name": "",
+          "type": "address[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
       "inputs": [
         {
           "internalType": "address",
@@ -168,9 +238,9 @@
       "name": "getRecords",
       "outputs": [
         {
-          "internalType": "bytes32[]",
+          "internalType": "string[]",
           "name": "",
-          "type": "bytes32[]"
+          "type": "string[]"
         }
       ],
       "stateMutability": "view",
@@ -217,6 +287,11 @@
       "inputs": [
         {
           "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
           "name": "role",
           "type": "string"
         }
@@ -260,18 +335,28 @@
           "type": "address"
         }
       ],
-      "name": "roles",
+      "name": "users",
       "outputs": [
         {
           "internalType": "string",
-          "name": "",
+          "name": "name",
           "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "role",
+          "type": "string"
+        },
+        {
+          "internalType": "bool",
+          "name": "isRegistered",
+          "type": "bool"
         }
       ],
       "stateMutability": "view",
       "type": "function"
     }
   ],
-  "network": "localhost",
-  "deployedAt": "2026-02-19T08:27:03.992Z"
+  "network": "hardhat",
+  "deployedAt": "2026-03-23T10:11:59.227Z"
 }

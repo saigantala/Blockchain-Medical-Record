@@ -2,11 +2,10 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { connectWallet, shortenAddress } from "../services/blockchain";
-import { linkWallet } from "../services/api";
 import "./Navbar.css";
 
 export default function Navbar() {
-    const { user, walletAddress, setWalletAddress, logoutUser } = useAuth();
+    const { user, walletAddress, setWalletAddress, loadSession, logoutUser } = useAuth();
     const navigate = useNavigate();
     const [connecting, setConnecting] = useState(false);
 
@@ -15,9 +14,7 @@ export default function Navbar() {
         try {
             const addr = await connectWallet();
             setWalletAddress(addr);
-            if (user) {
-                await linkWallet(addr);
-            }
+            await loadSession(addr);
         } catch (err) {
             alert(err.message);
         } finally {

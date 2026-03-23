@@ -11,40 +11,43 @@ describe("MedicalAccess", function () {
         await medicalAccess.waitForDeployment();
 
         // Register roles
-        await medicalAccess.connect(patient).register("patient");
-        await medicalAccess.connect(doctor).register("doctor");
+        await medicalAccess.connect(patient).register("Alice", "patient");
+        await medicalAccess.connect(doctor).register("Dr. Bob", "doctor");
     });
 
     it("Should register a patient", async function () {
-        expect(await medicalAccess.roles(patient.address)).to.equal("patient");
+        const user = await medicalAccess.users(patient.address);
+        expect(user.role).to.equal("patient");
+        expect(user.name).to.equal("Alice");
     });
 
     it("Should register a doctor", async function () {
-        expect(await medicalAccess.roles(doctor.address)).to.equal("doctor");
+        const user = await medicalAccess.users(doctor.address);
+        expect(user.role).to.equal("doctor");
+        expect(user.name).to.equal("Dr. Bob");
     });
 
     it("Should not allow duplicate registration", async function () {
         await expect(
-            medicalAccess.connect(patient).register("patient")
+            medicalAccess.connect(patient).register("Alice", "patient")
         ).to.be.revertedWith("Already registered");
     });
 
     it("Should not allow invalid role", async function () {
         await expect(
-            medicalAccess.connect(stranger).register("admin")
+            medicalAccess.connect(stranger).register("Eve", "admin")
         ).to.be.revertedWith("Role must be 'patient' or 'doctor'");
     });
 
     it("Patient can add a record", async function () {
-        const hash = ethers.keccak256(ethers.toUtf8Bytes("test file content"));
+        const hash = "ipfs://QmTestHash1234567890";
         const tx = await medicalAccess.connect(patient).addRecord(hash);
         const receipt = await tx.wait();
-        // Check event was emitted (without timestamp assertion)
         expect(receipt.status).to.equal(1);
     });
 
     it("Patient can view their own records", async function () {
-        const hash = ethers.keccak256(ethers.toUtf8Bytes("test file content"));
+        const hash = "ipfs://QmTestHash1234567890";
         await medicalAccess.connect(patient).addRecord(hash);
         const records = await medicalAccess.connect(patient).getRecords(patient.address);
         expect(records.length).to.equal(1);
@@ -52,8 +55,8 @@ describe("MedicalAccess", function () {
     });
 
     it("Patient can add multiple records", async function () {
-        const hash1 = ethers.keccak256(ethers.toUtf8Bytes("record 1"));
-        const hash2 = ethers.keccak256(ethers.toUtf8Bytes("record 2"));
+        const hash1 = "ipfs://QmTestHash1";
+        const hash2 = "ipfs://QmTestHash2";
         await medicalAccess.connect(patient).addRecord(hash1);
         await medicalAccess.connect(patient).addRecord(hash2);
         const records = await medicalAccess.connect(patient).getRecords(patient.address);
@@ -61,7 +64,7 @@ describe("MedicalAccess", function () {
     });
 
     it("Doctor cannot view records without permission", async function () {
-        const hash = ethers.keccak256(ethers.toUtf8Bytes("test file content"));
+        const hash = "ipfs://QmTestHash1234567890";
         await medicalAccess.connect(patient).addRecord(hash);
         await expect(
             medicalAccess.connect(doctor).getRecords(patient.address)
@@ -91,7 +94,7 @@ describe("MedicalAccess", function () {
     });
 
     it("Doctor can view records after grant", async function () {
-        const hash = ethers.keccak256(ethers.toUtf8Bytes("test file content"));
+        const hash = "ipfs://QmTestHash1234567890";
         await medicalAccess.connect(patient).addRecord(hash);
         await medicalAccess.connect(patient).grantAccess(doctor.address);
         const records = await medicalAccess.connect(doctor).getRecords(patient.address);
@@ -108,7 +111,7 @@ describe("MedicalAccess", function () {
     });
 
     it("Doctor cannot view records after revoke", async function () {
-        const hash = ethers.keccak256(ethers.toUtf8Bytes("my record"));
+        const hash = "ipfs://QmTestHash1234567890";
         await medicalAccess.connect(patient).addRecord(hash);
         await medicalAccess.connect(patient).grantAccess(doctor.address);
         await medicalAccess.connect(patient).revokeAccess(doctor.address);

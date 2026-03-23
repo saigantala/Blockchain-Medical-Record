@@ -1,21 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
-    getMyRecords,
-    uploadRecord,
-    anchorRecord,
-    deleteRecord,
-    getPatientRequests,
-    approveRequest,
-    rejectRequest,
-    revokeRequest,
-} from "../services/api";
-import {
     grantAccess,
     revokeAccess,
     addRecordOnChain,
-    registerOnChain,
+    getRecordsOnChain,
+    getRequestHistory,
+    getUserProfile
 } from "../services/blockchain";
+import { uploadToIPFS, getIPFSGatewayUrl } from "../services/ipfs";
 import AccessLog from "../components/AccessLog";
 import "./Dashboard.css";
 
@@ -31,12 +24,13 @@ export default function PatientDashboard() {
     const [activeTab, setActiveTab] = useState("records");
     const [actionLoading, setActionLoading] = useState({});
     const [msg, setMsg] = useState({ type: "", text: "" });
-    const [registering, setRegistering] = useState(false);
 
     useEffect(() => {
-        fetchRecords();
-        fetchRequests();
-    }, []);
+        if (walletAddress) {
+            fetchRecords();
+            fetchRequests();
+        }
+    }, [walletAddress]);
 
     const showMsg = (type, text) => {
         setMsg({ type, text });
@@ -45,16 +39,70 @@ export default function PatientDashboard() {
 
     const fetchRecords = async () => {
         try {
-            const { data } = await getMyRecords();
-            setRecords(data.records);
-        } catch { }
+            const hashes = await getRecordsOnChain(walletAddress);
+            const formattedRecords = hashes.map(hash => ({
+                _id: hash,
+                fileHash: hash,
+                fileUrl: getIPFSGatewayUrl(hash),
+                originalName: `IPFS Record: ${hash.slice(0, 8)}...`,
+                description: "Blockchain stored record",
+                createdAt: Date.now(), // Blockchain doesn't easily give timestamps for these without event parsing, using current time for display
+                onChain: true
+            }));
+            setRecords(formattedRecords);
+        } catch (err) {
+            console.error("Failed to fetch records", err);
+        }
     };
 
     const fetchRequests = async () => {
         try {
-            const { data } = await getPatientRequests(user._id);
-            setRequests(data.requests);
-        } catch { }
+            const { reqLogs, grantLogs, revokeLogs } = await getRequestHistory(walletAddress);
+            
+            // Build current state per doctor
+            const doctorStatus = {}; // address -> "pending" | "approved"
+            const doctorTimestamps = {};
+            
+            // Replay events to find current status
+            reqLogs.forEach(log => {
+                const docAddr = log.args[0]; // doctor
+                doctorStatus[docAddr] = "pending";
+                doctorTimestamps[docAddr] = Number(log.args[2]) * 1000;
+            });
+            
+            grantLogs.forEach(log => {
+                const docAddr = log.args[0];
+                doctorStatus[docAddr] = "approved";
+                doctorTimestamps[docAddr] = Number(log.args[2]) * 1000;
+            });
+            
+            revokeLogs.forEach(log => {
+                const docAddr = log.args[0];
+                // Once revoked, we can just remove them or mark as revoked
+                delete doctorStatus[docAddr];
+            });
+
+            // Fetch doctor profiles
+            const requestObjects = [];
+            for (const [docAddr, status] of Object.entries(doctorStatus)) {
+                let name = "Unknown Doctor";
+                try {
+                    const profile = await getUserProfile(docAddr);
+                    if (profile && profile.name) name = profile.name;
+                } catch(e) {}
+                
+                requestObjects.push({
+                    _id: docAddr,
+                    doctorId: { walletAddress: docAddr, name },
+                    status,
+                    createdAt: doctorTimestamps[docAddr]
+                });
+            }
+
+            setRequests(requestObjects.sort((a,b) => b.createdAt - a.createdAt));
+        } catch (err) {
+             console.error("Failed to fetch requests", err);
+        }
     };
 
     const handleUpload = async (e) => {
@@ -62,28 +110,18 @@ export default function PatientDashboard() {
         if (!uploadFile) return;
         setUploading(true);
         try {
-            const formData = new FormData();
-            formData.append("file", uploadFile);
-            formData.append("description", uploadDesc);
-            const { data } = await uploadRecord(formData);
-            showMsg("success", "Record uploaded successfully!");
-
-            // Anchor on blockchain if wallet connected
-            if (walletAddress) {
-                try {
-                    const receipt = await addRecordOnChain(data.record.fileHashBytes32);
-                    await anchorRecord(data.record._id, receipt.hash);
-                    showMsg("success", "Record uploaded and anchored on blockchain! ✅");
-                } catch (bcErr) {
-                    showMsg("info", "File uploaded. Blockchain anchoring skipped (wallet not connected or tx failed).");
-                }
-            }
+            // 1. Upload to IPFS
+            const cid = await uploadToIPFS(uploadFile);
+            
+            // 2. Anchor to Blockchain
+            await addRecordOnChain(cid);
+            showMsg("success", "Record uploaded to IPFS and anchored on blockchain! ✅");
 
             setUploadFile(null);
             setUploadDesc("");
             fetchRecords();
         } catch (err) {
-            showMsg("error", err.response?.data?.message || "Upload failed");
+            showMsg("error", err.message || "Upload failed");
         } finally {
             setUploading(false);
         }
@@ -92,16 +130,11 @@ export default function PatientDashboard() {
     const handleApprove = async (req) => {
         setActionLoading((p) => ({ ...p, [req._id]: true }));
         try {
-            let txHash = null;
-            if (walletAddress && req.doctorId?.walletAddress) {
-                const receipt = await grantAccess(req.doctorId.walletAddress);
-                txHash = receipt.hash;
-            }
-            await approveRequest(req._id, txHash);
+            await grantAccess(req.doctorId.walletAddress);
             showMsg("success", `Access granted to Dr. ${req.doctorId?.name}!`);
             fetchRequests();
         } catch (err) {
-            showMsg("error", err.response?.data?.message || err.message || "Error approving");
+            showMsg("error", err.message || "Error approving");
         } finally {
             setActionLoading((p) => ({ ...p, [req._id]: false }));
         }
@@ -110,11 +143,13 @@ export default function PatientDashboard() {
     const handleReject = async (req) => {
         setActionLoading((p) => ({ ...p, [`r${req._id}`]: true }));
         try {
-            await rejectRequest(req._id);
+            // Reject is same as revoke essentially, or we just ignore. Wait, smart contract only has revoke.
+            // Let's just revoke to clear the pending state.
+            await revokeAccess(req.doctorId.walletAddress);
             showMsg("success", "Request rejected.");
             fetchRequests();
         } catch (err) {
-            showMsg("error", err.response?.data?.message || "Error rejecting");
+            showMsg("error", err.message || "Error rejecting");
         } finally {
             setActionLoading((p) => ({ ...p, [`r${req._id}`]: false }));
         }
@@ -123,41 +158,13 @@ export default function PatientDashboard() {
     const handleRevoke = async (req) => {
         setActionLoading((p) => ({ ...p, [`v${req._id}`]: true }));
         try {
-            let txHash = null;
-            if (walletAddress && req.doctorId?.walletAddress) {
-                const receipt = await revokeAccess(req.doctorId.walletAddress);
-                txHash = receipt.hash;
-            }
-            await revokeRequest(req._id, txHash);
+            await revokeAccess(req.doctorId.walletAddress);
             showMsg("success", `Access revoked from Dr. ${req.doctorId?.name}.`);
             fetchRequests();
         } catch (err) {
-            showMsg("error", err.response?.data?.message || err.message || "Error revoking");
+            showMsg("error", err.message || "Error revoking");
         } finally {
             setActionLoading((p) => ({ ...p, [`v${req._id}`]: false }));
-        }
-    };
-
-    const handleRegisterOnChain = async () => {
-        setRegistering(true);
-        try {
-            await registerOnChain("patient");
-            showMsg("success", "Registered as patient on blockchain! ✅");
-        } catch (err) {
-            showMsg("error", err.message || "Blockchain registration failed");
-        } finally {
-            setRegistering(false);
-        }
-    };
-
-    const handleDeleteRecord = async (id) => {
-        if (!confirm("Delete this record? This cannot be undone.")) return;
-        try {
-            await deleteRecord(id);
-            showMsg("success", "Record deleted.");
-            fetchRecords();
-        } catch (err) {
-            showMsg("error", "Delete failed");
         }
     };
 
@@ -171,18 +178,7 @@ export default function PatientDashboard() {
                 <div className="dashboard-header animate-in">
                     <div>
                         <h1>Patient Dashboard</h1>
-                        <p className="text-muted">Welcome, <strong>{user.name}</strong></p>
-                    </div>
-                    <div className="header-actions">
-                        {walletAddress && (
-                            <button
-                                className="btn btn-outline btn-sm"
-                                onClick={handleRegisterOnChain}
-                                disabled={registering}
-                            >
-                                {registering ? <span className="spinner" /> : "⛓ Register on Chain"}
-                            </button>
-                        )}
+                        <p className="text-muted">Welcome, <strong>{user?.name}</strong></p>
                     </div>
                 </div>
 
@@ -202,7 +198,7 @@ export default function PatientDashboard() {
                     </div>
                     <div className="stat-card card">
                         <div className="stat-value" style={{ color: "var(--accent-purple)" }}>
-                            {records.filter((r) => r.onChain).length}
+                            {records.length}
                         </div>
                         <div className="stat-label">On-Chain</div>
                     </div>
@@ -235,7 +231,7 @@ export default function PatientDashboard() {
                     <div className="animate-in">
                         {/* Upload form */}
                         <div className="card upload-card">
-                            <h3>📤 Upload Medical Record</h3>
+                            <h3>📤 Upload Medical Record to IPFS</h3>
                             <form onSubmit={handleUpload} className="upload-form">
                                 <div className="form-group">
                                     <label className="form-label">Select File (PDF, Image, DOC — max 10MB)</label>
@@ -259,10 +255,12 @@ export default function PatientDashboard() {
                                         placeholder="e.g. Blood test report Jan 2025"
                                         value={uploadDesc}
                                         onChange={(e) => setUploadDesc(e.target.value)}
+                                        disabled
+                                        title="IPFS only stores the file, not the metadata right now"
                                     />
                                 </div>
                                 <button className="btn btn-primary" disabled={uploading}>
-                                    {uploading ? <><span className="spinner" /> Uploading...</> : "Upload Record"}
+                                    {uploading ? <><span className="spinner" /> Uploading...</> : "Upload & Anchor"}
                                 </button>
                             </form>
                         </div>
@@ -275,26 +273,18 @@ export default function PatientDashboard() {
                                     <p>No records yet. Upload your first medical record above.</p>
                                 </div>
                             ) : (
-                                records.map((r) => (
-                                    <div key={r._id} className="record-card card">
+                                records.map((r, i) => (
+                                    <div key={i} className="record-card card">
                                         <div className="record-icon">
-                                            {r.mimeType?.includes("pdf") ? "📄" : r.mimeType?.includes("image") ? "🖼" : "📋"}
+                                            📄
                                         </div>
                                         <div className="record-info">
                                             <h4 className="truncate">{r.originalName}</h4>
-                                            <p className="text-sm text-muted">{r.description || "No description"}</p>
                                             <p className="text-sm text-muted hash-text" title={r.fileHash}>
-                                                SHA-256: {r.fileHash.slice(0, 16)}...
+                                                IPFS CID: {r.fileHash.slice(0, 16)}...
                                             </p>
                                             <div className="record-meta">
-                                                <span className="text-sm text-muted">
-                                                    {new Date(r.createdAt).toLocaleDateString()}
-                                                </span>
-                                                {r.onChain ? (
-                                                    <span className="badge badge-green">⛓ On-Chain</span>
-                                                ) : (
-                                                    <span className="badge badge-amber">Off-Chain</span>
-                                                )}
+                                                <span className="badge badge-green">⛓ On-Chain</span>
                                             </div>
                                         </div>
                                         <div className="record-actions">
@@ -306,12 +296,6 @@ export default function PatientDashboard() {
                                             >
                                                 View
                                             </a>
-                                            <button
-                                                className="btn btn-danger btn-sm"
-                                                onClick={() => handleDeleteRecord(r._id)}
-                                            >
-                                                Delete
-                                            </button>
                                         </div>
                                     </div>
                                 ))
@@ -336,9 +320,7 @@ export default function PatientDashboard() {
                                             <div className="doctor-avatar">👨‍⚕️</div>
                                             <div>
                                                 <h4>Dr. {req.doctorId?.name}</h4>
-                                                <p className="text-sm text-muted">{req.doctorId?.specialization || "General Practitioner"}</p>
-                                                <p className="text-sm text-muted">{req.doctorId?.email}</p>
-                                                {req.message && <p className="text-sm request-message">"{req.message}"</p>}
+                                                <p className="text-sm text-muted">{req.doctorId?.walletAddress}</p>
                                                 <p className="text-sm text-muted">{new Date(req.createdAt).toLocaleDateString()}</p>
                                             </div>
                                         </div>

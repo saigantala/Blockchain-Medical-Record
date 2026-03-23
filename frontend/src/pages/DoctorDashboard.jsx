@@ -1,16 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import {
-    getUsers,
-    createRequest,
-    getDoctorRequests,
-    getPatientRecords,
-} from "../services/api";
-import {
+    getAllPatients,
     requestAccess,
-    registerOnChain,
-    shortenAddress,
+    getDoctorRequestHistory,
+    getRecordsOnChain,
+    getUserProfile,
+    shortenAddress
 } from "../services/blockchain";
+import { getIPFSGatewayUrl } from "../services/ipfs";
 import AccessLog from "../components/AccessLog";
 import "./Dashboard.css";
 
@@ -24,12 +22,13 @@ export default function DoctorDashboard() {
     const [viewingRecords, setViewingRecords] = useState(null); // { patientId, records }
     const [actionLoading, setActionLoading] = useState({});
     const [msg, setMsg] = useState({ type: "", text: "" });
-    const [registering, setRegistering] = useState(false);
 
     useEffect(() => {
-        fetchMyRequests();
-        loadPatients();
-    }, []);
+        if (walletAddress) {
+            fetchMyRequests();
+            loadPatients();
+        }
+    }, [walletAddress]);
 
     const showMsg = (type, text) => {
         setMsg({ type, text });
@@ -38,62 +37,92 @@ export default function DoctorDashboard() {
 
     const loadPatients = async () => {
         try {
-            const { data } = await getUsers("patient");
-            setPatients(data.users);
+            const allPatients = await getAllPatients();
+            setPatients(allPatients);
         } catch { }
     };
 
     const fetchMyRequests = async () => {
         try {
-            const { data } = await getDoctorRequests(user._id);
-            setMyRequests(data.requests);
-        } catch { }
+            const { reqLogs, grantLogs, revokeLogs } = await getDoctorRequestHistory(walletAddress);
+            
+            // Build current state per patient
+            const patientStatus = {}; // address -> "pending" | "approved"
+            const patientTimestamps = {};
+            
+            reqLogs.forEach(log => {
+                const patAddr = log.args[1]; 
+                patientStatus[patAddr] = "pending";
+                patientTimestamps[patAddr] = Number(log.args[2]) * 1000;
+            });
+            
+            grantLogs.forEach(log => {
+                const patAddr = log.args[1];
+                patientStatus[patAddr] = "approved";
+                patientTimestamps[patAddr] = Number(log.args[2]) * 1000;
+            });
+            
+            revokeLogs.forEach(log => {
+                const patAddr = log.args[1];
+                delete patientStatus[patAddr];
+            });
+
+            // Fetch patient profiles
+            const requestObjects = [];
+            for (const [patAddr, status] of Object.entries(patientStatus)) {
+                let name = "Unknown Patient";
+                try {
+                    const profile = await getUserProfile(patAddr);
+                    if (profile && profile.name) name = profile.name;
+                } catch(e) {}
+                
+                requestObjects.push({
+                    _id: patAddr,
+                    patientId: { walletAddress: patAddr, name, _id: patAddr },
+                    status,
+                    createdAt: patientTimestamps[patAddr]
+                });
+            }
+            setMyRequests(requestObjects.sort((a,b) => b.createdAt - a.createdAt));
+        } catch(err) {
+            console.error("Failed to fetch requests", err);
+        }
     };
 
     const filteredPatients = patients.filter(
         (p) =>
             p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            p.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (p.walletAddress || "").toLowerCase().includes(searchQuery.toLowerCase())
+            (p.address || "").toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     const handleRequestAccess = async (patient) => {
-        setActionLoading((p) => ({ ...p, [patient._id]: true }));
+        setActionLoading((p) => ({ ...p, [patient.address]: true }));
         try {
-            let txHash = null;
-            if (walletAddress && patient.walletAddress) {
-                const receipt = await requestAccess(patient.walletAddress);
-                txHash = receipt.hash;
-            }
-            await createRequest({ patientId: patient._id, requestTxHash: txHash });
+            await requestAccess(patient.address);
             showMsg("success", `Access requested from ${patient.name}. They will be notified.`);
             fetchMyRequests();
         } catch (err) {
-            showMsg("error", err.response?.data?.message || err.message || "Request failed");
+            showMsg("error", err.message || "Request failed");
         } finally {
-            setActionLoading((p) => ({ ...p, [patient._id]: false }));
+            setActionLoading((p) => ({ ...p, [patient.address]: false }));
         }
     };
 
     const handleViewRecords = async (req) => {
         try {
-            const { data } = await getPatientRecords(req.patientId._id);
-            setViewingRecords({ patient: req.patientId, records: data.records });
+            const hashes = await getRecordsOnChain(req.patientId.walletAddress);
+            const formattedRecords = hashes.map(hash => ({
+                _id: hash,
+                fileHash: hash,
+                fileUrl: getIPFSGatewayUrl(hash),
+                originalName: `IPFS Record: ${hash.slice(0, 8)}...`,
+                onChain: true
+            }));
+            
+            setViewingRecords({ patient: req.patientId, records: formattedRecords });
             setActiveTab("records");
         } catch (err) {
-            showMsg("error", "Could not load records. Make sure access is approved.");
-        }
-    };
-
-    const handleRegisterOnChain = async () => {
-        setRegistering(true);
-        try {
-            await registerOnChain("doctor");
-            showMsg("success", "Registered as doctor on blockchain! ✅");
-        } catch (err) {
-            showMsg("error", err.message || "Blockchain registration failed");
-        } finally {
-            setRegistering(false);
+            showMsg("error", "Could not load records. Make sure access is still approved.");
         }
     };
 
@@ -107,18 +136,7 @@ export default function DoctorDashboard() {
                 <div className="dashboard-header animate-in">
                     <div>
                         <h1>Doctor Dashboard</h1>
-                        <p className="text-muted">Welcome, <strong>Dr. {user.name}</strong></p>
-                    </div>
-                    <div className="header-actions">
-                        {walletAddress && (
-                            <button
-                                className="btn btn-outline btn-sm"
-                                onClick={handleRegisterOnChain}
-                                disabled={registering}
-                            >
-                                {registering ? <span className="spinner" /> : "⛓ Register on Chain"}
-                            </button>
-                        )}
+                        <p className="text-muted">Welcome, <strong>Dr. {user?.name}</strong></p>
                     </div>
                 </div>
 
@@ -168,7 +186,7 @@ export default function DoctorDashboard() {
                             <h3>🔍 Search Patients</h3>
                             <input
                                 className="form-input"
-                                placeholder="Search by name, email, or wallet address..."
+                                placeholder="Search by name or wallet address..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 style={{ marginTop: "1rem" }}
@@ -183,29 +201,26 @@ export default function DoctorDashboard() {
                             ) : (
                                 filteredPatients.map((p) => {
                                     const alreadyRequested = myRequests.some(
-                                        (r) => r.patientId?._id === p._id || r.patientId === p._id
+                                        (r) => r.patientId?._id === p.address || r.patientId?.walletAddress === p.address
                                     );
                                     return (
-                                        <div key={p._id} className="request-card card">
+                                        <div key={p.address} className="request-card card">
                                             <div className="request-info">
                                                 <div className="doctor-avatar">🏥</div>
                                                 <div>
                                                     <h4>{p.name}</h4>
-                                                    <p className="text-sm text-muted">{p.email}</p>
-                                                    {p.walletAddress && (
-                                                        <p className="text-sm text-muted wallet-text">
-                                                            🦊 {shortenAddress(p.walletAddress)}
-                                                        </p>
-                                                    )}
+                                                    <p className="text-sm text-muted wallet-text">
+                                                        🦊 {shortenAddress(p.address)}
+                                                    </p>
                                                 </div>
                                             </div>
                                             <div className="request-controls">
                                                 <button
                                                     className="btn btn-primary btn-sm"
                                                     onClick={() => handleRequestAccess(p)}
-                                                    disabled={actionLoading[p._id] || alreadyRequested}
+                                                    disabled={actionLoading[p.address] || alreadyRequested}
                                                 >
-                                                    {actionLoading[p._id] ? (
+                                                    {actionLoading[p.address] ? (
                                                         <span className="spinner" />
                                                     ) : alreadyRequested ? (
                                                         "✅ Requested"
@@ -238,10 +253,7 @@ export default function DoctorDashboard() {
                                             <div className="doctor-avatar">🏥</div>
                                             <div>
                                                 <h4>{req.patientId?.name || "Unknown"}</h4>
-                                                <p className="text-sm text-muted">{req.patientId?.email}</p>
-                                                {req.patientId?.walletAddress && (
-                                                    <p className="text-sm text-muted">{shortenAddress(req.patientId.walletAddress)}</p>
-                                                )}
+                                                <p className="text-sm text-muted">{shortenAddress(req.patientId?.walletAddress)}</p>
                                                 <p className="text-sm text-muted">{new Date(req.createdAt).toLocaleDateString()}</p>
                                             </div>
                                         </div>
@@ -277,7 +289,6 @@ export default function DoctorDashboard() {
                             <>
                                 <div className="card" style={{ marginBottom: "1.5rem" }}>
                                     <h3>Records for {viewingRecords.patient?.name}</h3>
-                                    <p className="text-sm text-muted">{viewingRecords.patient?.email}</p>
                                     <button 
                                         className="btn btn-outline btn-sm" 
                                         onClick={() => setActiveTab("log")}
@@ -293,32 +304,18 @@ export default function DoctorDashboard() {
                                             <p>This patient has no records yet.</p>
                                         </div>
                                     ) : (
-                                        viewingRecords.records.map((r) => (
-                                            <div key={r._id} className="record-card card">
+                                        viewingRecords.records.map((r, i) => (
+                                            <div key={i} className="record-card card">
                                                 <div className="record-icon">
-                                                    {r.mimeType?.includes("pdf") ? "📄" : r.mimeType?.includes("image") ? "🖼" : "📋"}
+                                                    📄
                                                 </div>
                                                 <div className="record-info">
                                                     <h4 className="truncate">{r.originalName}</h4>
-                                                    <button 
-                                                        style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', color: 'var(--accent-blue)', textDecoration: 'underline' }} 
-                                                        className="text-sm"
-                                                        onClick={() => alert(`Medicine Description:\n\n${r.description || "No description provided."}`)}
-                                                    >
-                                                        Medicine Description 
-                                                    </button>
                                                     <p className="text-sm text-muted hash-text" style={{ marginTop: '0.5rem' }}>
-                                                        SHA-256: {r.fileHash?.slice(0, 16) || "N/A"}...
+                                                        IPFS CID: {r.fileHash?.slice(0, 16) || "N/A"}...
                                                     </p>
                                                     <div className="record-meta">
-                                                        <span className="text-sm text-muted">
-                                                            {new Date(r.createdAt).toLocaleDateString()}
-                                                        </span>
-                                                        {r.onChain ? (
-                                                            <span className="badge badge-green">⛓ On-Chain</span>
-                                                        ) : (
-                                                            <span className="badge badge-amber">Off-Chain</span>
-                                                        )}
+                                                        <span className="badge badge-green">⛓ On-Chain</span>
                                                     </div>
                                                 </div>
                                                 <a href={r.fileUrl} target="_blank" rel="noreferrer" className="btn btn-outline btn-sm">
