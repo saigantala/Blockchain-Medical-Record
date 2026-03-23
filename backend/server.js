@@ -21,14 +21,7 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// ── Ensure uploads directory exists ──────────────────────────────────────────
-const uploadsDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// ── Serve uploaded files statically ──────────────────────────────────────────
-app.use("/uploads", express.static(uploadsDir));
+// ── File downloads are now handled by GridFS via /api/records/download/:id ──
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/auth", require("./routes/auth"));
@@ -59,9 +52,12 @@ app.use((err, req, res, next) => {
     });
 });
 
-// ── Start Server ──────────────────────────────────────────────────────────────
+// ── Export / Start Server ───────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`\n🚀 Server running on http://localhost:${PORT}`);
-    console.log(`📌 Environment: ${process.env.NODE_ENV || "development"}`);
-});
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`\n🚀 Server running on http://localhost:${PORT}`);
+        console.log(`📌 Environment: ${process.env.NODE_ENV || "development"}`);
+    });
+}
+module.exports = app;

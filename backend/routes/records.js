@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
-const path = require("path");
 const {
     uploadRecord,
+    downloadRecord,
     getRecords,
     getMyRecords,
     anchorRecord,
@@ -12,15 +12,7 @@ const {
 const { protect, requireRole } = require("../middleware/auth");
 
 // ── Multer storage config ────────────────────────────────────────────────────
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, path.join(__dirname, "../uploads"));
-    },
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
-    },
-});
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
     const allowed = [
@@ -54,6 +46,7 @@ router.post(
     uploadRecord
 );
 
+router.get("/download/:fileId", protect, downloadRecord);
 router.get("/my", protect, requireRole("patient"), getMyRecords);
 router.get("/:patientId", protect, getRecords);
 router.patch("/:id/anchor", protect, requireRole("patient"), anchorRecord);
