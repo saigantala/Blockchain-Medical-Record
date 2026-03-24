@@ -5,6 +5,8 @@ import { connectWallet } from "../services/blockchain";
 import "./Auth.css";
 
 export default function Login() {
+    const [authMethod, setAuthMethod] = useState("email"); // "email" or "web3"
+    const [form, setForm] = useState({ email: "", password: "" });
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
     const { loadSession } = useAuth();
@@ -15,6 +17,17 @@ export default function Login() {
         setError("");
         setLoading(true);
         try {
+            if (authMethod === "email") {
+                const users = JSON.parse(localStorage.getItem("medchain_users") || "[]");
+                const user = users.find(u => u.email === form.email && u.password === form.password);
+                if (!user) throw new Error("Invalid email or password");
+                
+                localStorage.setItem("medchain_session", form.email);
+                window.location.href = "/";
+                return;
+            }
+
+            // Web3 login
             const addr = await connectWallet();
             // AuthContext's loadSession checks if the user is registered on-chain
             await loadSession(addr);
@@ -45,9 +58,27 @@ export default function Login() {
 
                 {error && <div className="alert alert-error mt-2">{error}</div>}
 
-                <form onSubmit={submit} className="auth-form" style={{ marginTop: '2rem' }}>
-                    <button className="btn btn-primary btn-lg w-full" disabled={loading}>
-                        {loading ? <span className="spinner" /> : "🦊 Connect MetaMask"}
+                <div className="tab-bar" style={{ marginBottom: "1rem" }}>
+                    <button type="button" className={`tab-btn ${authMethod === 'email' ? 'tab-btn--active' : ''}`} onClick={() => setAuthMethod("email")}>✉️ Email</button>
+                    <button type="button" className={`tab-btn ${authMethod === 'web3' ? 'tab-btn--active' : ''}`} onClick={() => setAuthMethod("web3")}>🦊 MetaMask</button>
+                </div>
+
+                <form onSubmit={submit} className="auth-form" style={{ marginTop: '1rem' }}>
+                    {authMethod === "email" && (
+                        <>
+                            <div className="form-group">
+                                <label className="form-label">Email</label>
+                                <input className="form-input" type="email" placeholder="john@example.com" value={form.email} onChange={e => setForm({...form, email: e.target.value})} required />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Password</label>
+                                <input className="form-input" type="password" placeholder="••••••••" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required />
+                            </div>
+                        </>
+                    )}
+
+                    <button className="btn btn-primary btn-lg w-full" disabled={loading} style={{ marginTop: '1rem' }}>
+                        {loading ? <span className="spinner" /> : (authMethod === "email" ? "✉️ Log in with Email" : "🦊 Connect MetaMask")}
                     </button>
                 </form>
 

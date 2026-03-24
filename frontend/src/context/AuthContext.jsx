@@ -38,6 +38,19 @@ export function AuthProvider({ children }) {
     useEffect(() => {
         const checkConnection = async () => {
             try {
+                // First check Web2 session
+                const sessionEmail = localStorage.getItem("medchain_session");
+                if (sessionEmail) {
+                    const users = JSON.parse(localStorage.getItem("medchain_users") || "[]");
+                    const userMatch = users.find(u => u.email === sessionEmail);
+                    if (userMatch) {
+                        setUser({ name: userMatch.name, role: userMatch.role, email: userMatch.email, isWeb2: true });
+                        setWalletAddress("Email User");
+                        setLoading(false);
+                        return;
+                    }
+                }
+
                 const addr = await getConnectedAddress();
                 setWalletAddress(addr);
                 await loadSession(addr);
@@ -64,6 +77,8 @@ export function AuthProvider({ children }) {
 
     const logoutUser = () => {
         setUser(null);
+        setWalletAddress(null);
+        localStorage.removeItem("medchain_session");
         // Dapps can't explicitly disconnect metamask, but app side we just clear state
     };
 

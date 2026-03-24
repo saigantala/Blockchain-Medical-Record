@@ -5,9 +5,12 @@ import { connectWallet, registerOnChain } from "../services/blockchain";
 import "./Auth.css";
 
 export default function Register() {
+    const [authMethod, setAuthMethod] = useState("email"); // "email" or "web3"
     const [form, setForm] = useState({
         name: "",
-        role: "patient"
+        role: "patient",
+        email: "",
+        password: ""
     });
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
@@ -21,6 +24,10 @@ export default function Register() {
             setError("Please enter a valid name");
             return false;
         }
+        if (authMethod === "email" && (!form.email || form.password.length < 6)) {
+            setError("Please enter a valid email and password (min 6 chars)");
+            return false;
+        }
         return true;
     };
 
@@ -30,12 +37,23 @@ export default function Register() {
         setError("");
         setLoading(true);
         try {
-            // First connect wallet
+            if (authMethod === "email") {
+                const users = JSON.parse(localStorage.getItem("medchain_users") || "[]");
+                if (users.find(u => u.email === form.email)) {
+                    throw new Error("Email is already registered!");
+                }
+                const newUser = { email: form.email, password: form.password, name: form.name, role: form.role };
+                users.push(newUser);
+                localStorage.setItem("medchain_users", JSON.stringify(users));
+                localStorage.setItem("medchain_session", form.email);
+                
+                window.location.href = "/"; // Force full reload to trigger Web2 session logic
+                return;
+            }
+
+            // Web3 Registration
             const addr = await connectWallet();
-            // Then register them on blockchain
             await registerOnChain(form.name, form.role);
-            
-            // Reload context session
             await loadSession(addr);
             navigate("/");
         } catch (err) {
@@ -69,7 +87,12 @@ export default function Register() {
 
                 {error && <div className="alert alert-error mt-2">{error}</div>}
 
-                <form onSubmit={submit} className="auth-form" style={{ marginTop: '2rem' }}>
+                <div className="tab-bar" style={{ marginBottom: "1rem" }}>
+                    <button type="button" className={`tab-btn ${authMethod === 'email' ? 'tab-btn--active' : ''}`} onClick={() => setAuthMethod("email")}>✉️ Email</button>
+                    <button type="button" className={`tab-btn ${authMethod === 'web3' ? 'tab-btn--active' : ''}`} onClick={() => setAuthMethod("web3")}>🦊 MetaMask</button>
+                </div>
+
+                <form onSubmit={submit} className="auth-form">
                     <div className="role-selector">
                         {["patient", "doctor"].map((r) => (
                             <button
@@ -88,8 +111,21 @@ export default function Register() {
                         <input className="form-input" name="name" placeholder="John Doe" value={form.name} onChange={handle} required />
                     </div>
 
+                    {authMethod === "email" && (
+                        <>
+                            <div className="form-group">
+                                <label className="form-label">Email</label>
+                                <input className="form-input" type="email" name="email" placeholder="john@example.com" value={form.email} onChange={handle} required />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Password</label>
+                                <input className="form-input" type="password" name="password" placeholder="••••••••" value={form.password} onChange={handle} required />
+                            </div>
+                        </>
+                    )}
+
                     <button className="btn btn-primary btn-lg w-full" disabled={loading} style={{ marginTop: '1rem' }}>
-                        {loading ? <span className="spinner" /> : "🦊 Connect & Register on Blockchain"}
+                        {loading ? <span className="spinner" /> : (authMethod === "email" ? "✉️ Register with Email" : "🦊 Connect & Register on Blockchain")}
                     </button>
                 </form>
 

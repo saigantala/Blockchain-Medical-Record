@@ -36,6 +36,7 @@ export default function DoctorDashboard() {
     };
 
     const loadPatients = async () => {
+        if (user?.isWeb2) return;
         try {
             const allPatients = await getAllPatients();
             setPatients(allPatients);
@@ -43,6 +44,7 @@ export default function DoctorDashboard() {
     };
 
     const fetchMyRequests = async () => {
+        if (user?.isWeb2) return;
         try {
             const { reqLogs, grantLogs, revokeLogs } = await getDoctorRequestHistory(walletAddress);
             
@@ -96,6 +98,7 @@ export default function DoctorDashboard() {
     );
 
     const handleRequestAccess = async (patient) => {
+        if (user?.isWeb2) return showMsg("error", "Email users cannot sign transactions. Please log in with MetaMask.");
         setActionLoading((p) => ({ ...p, [patient.address]: true }));
         try {
             await requestAccess(patient.address);
@@ -136,7 +139,7 @@ export default function DoctorDashboard() {
                 <div className="dashboard-header animate-in">
                     <div>
                         <h1>Doctor Dashboard</h1>
-                        <p className="text-muted">Welcome, <strong>Dr. {user?.name}</strong></p>
+                        <p className="text-muted">Welcome, <strong>Dr. {user?.name}</strong> {user?.isWeb2 && <span className="badge badge-amber" style={{marginLeft: '10px'}}>Email User (Read-Only)</span>}</p>
                     </div>
                 </div>
 
