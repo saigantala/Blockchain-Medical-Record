@@ -1,5 +1,28 @@
 import { ethers } from "ethers";
 
+// ── Web2 Simulation Layer ──────────────────────────────────────────────────────
+function getWeb2User() {
+    const sessionEmail = localStorage.getItem("medchain_session");
+    if (!sessionEmail) return null;
+    const users = JSON.parse(localStorage.getItem("medchain_users") || "[]");
+    return users.find(u => u.email === sessionEmail);
+}
+
+function getMockAddress(email) {
+    let hash = 0;
+    for (let i = 0; i < email.length; i++) {
+        hash = ((hash << 5) - hash) + email.charCodeAt(i);
+        hash |= 0;
+    }
+    return "0xW2B" + Math.abs(hash).toString(16).padStart(35, '0');
+}
+
+function saveMockLog(type, args) {
+    const logs = JSON.parse(localStorage.getItem("w2_logs") || "[]");
+    logs.push({ type, args, timestamp: Date.now() / 1000 });
+    localStorage.setItem("w2_logs", JSON.stringify(logs));
+}
+
 // ── Contract Info ────────────────────────────────────────────────────────────
 let contractInfo = null;
 
@@ -47,6 +70,8 @@ export async function connectWallet() {
 }
 
 export async function getConnectedAddress() {
+    const w2User = getWeb2User();
+    if (w2User) return getMockAddress(w2User.email);
     if (!window.ethereum) return null;
     const accounts = await window.ethereum.request({ method: "eth_accounts" });
     return accounts[0] || null;
@@ -54,6 +79,7 @@ export async function getConnectedAddress() {
 
 // ── Contract Calls ───────────────────────────────────────────────────────────
 export async function registerOnChain(name, role) {
+    if (getWeb2User()) return { wait: async () => true };
     const contract = await getContract();
     const tx = await contract.register(name, role);
     const receipt = await tx.wait();
@@ -61,23 +87,43 @@ export async function registerOnChain(name, role) {
 }
 
 export async function getUserProfile(address) {
+    if (address && address.startsWith("0xW2B")) {
+        const users = JSON.parse(localStorage.getItem("medchain_users") || "[]");
+        const match = users.find(u => getMockAddress(u.email) === address);
+        if (match) return { name: match.name, role: match.role, isRegistered: true };
+        throw new Error("User not found");
+    }
     const contract = await getContract(false);
     return contract.users(address);
 }
 
 export async function getAllPatients() {
-    const contract = await getContract(false);
-    const addresses = await contract.getAllPatients();
-    const profiles = await Promise.all(
-        addresses.map(async (addr) => {
-            const user = await contract.users(addr);
-            return { address: addr, name: user.name, role: user.role };
-        })
-    );
+    let profiles = [];
+    try {
+        const contract = await getContract(false);
+        const addresses = await contract.getAllPatients();
+        profiles = await Promise.all(
+            addresses.map(async (addr) => {
+                const user = await contract.users(addr);
+                return { address: addr, name: user.name, role: user.role };
+            })
+        );
+    } catch(e) {}
+    
+    const users = JSON.parse(localStorage.getItem("medchain_users") || "[]");
+    users.filter(u => u.role === "patient").forEach(u => {
+        profiles.push({ address: getMockAddress(u.email), name: u.name, role: u.role });
+    });
+    
     return profiles;
 }
 
 export async function requestAccess(patientAddress) {
+    const w2User = getWeb2User();
+    if (w2User) {
+        saveMockLog("AccessRequested", [getMockAddress(w2User.email), patientAddress]);
+        return { wait: async () => true };
+    }
     const contract = await getContract();
     const tx = await contract.requestAccess(patientAddress);
     const receipt = await tx.wait();
@@ -85,6 +131,11 @@ export async function requestAccess(patientAddress) {
 }
 
 export async function grantAccess(doctorAddress) {
+    const w2User = getWeb2User();
+    if (w2User) {
+        saveMockLog("AccessGranted", [doctorAddress, getMockAddress(w2User.email)]);
+        return { wait: async () => true };
+    }
     const contract = await getContract();
     const tx = await contract.grantAccess(doctorAddress);
     const receipt = await tx.wait();
@@ -92,6 +143,11 @@ export async function grantAccess(doctorAddress) {
 }
 
 export async function revokeAccess(doctorAddress) {
+    const w2User = getWeb2User();
+    if (w2User) {
+        saveMockLog("AccessRevoked", [doctorAddress, getMockAddress(w2User.email)]);
+        return { wait: async () => true };
+    }
     const contract = await getContract();
     const tx = await contract.revokeAccess(doctorAddress);
     const receipt = await tx.wait();
@@ -99,6 +155,15 @@ export async function revokeAccess(doctorAddress) {
 }
 
 export async function addRecordOnChain(ipfsHash) {
+    const w2User = getWeb2User();
+    if (w2User) {
+        const mockAddr = getMockAddress(w2User.email);
+        const records = JSON.parse(localStorage.getItem(`w2_records_${mockAddr}`) || "[]");
+        records.push(ipfsHash);
+        localStorage.setItem(`w2_records_${mockAddr}`, JSON.stringify(records));
+        saveMockLog("RecordAdded", [mockAddr, ipfsHash]);
+        return { wait: async () => true };
+    }
     const contract = await getContract();
     const tx = await contract.addRecord(ipfsHash);
     const receipt = await tx.wait();
@@ -106,6 +171,9 @@ export async function addRecordOnChain(ipfsHash) {
 }
 
 export async function getRecordsOnChain(patientAddress) {
+    if (patientAddress && patientAddress.startsWith("0xW2B")) {
+        return JSON.parse(localStorage.getItem(`w2_records_${patientAddress}`) || "[]");
+    }
     const contract = await getContract(false);
     return contract.getRecords(patientAddress);
 }
@@ -149,12 +217,23 @@ export async function getRequestHistory(patientAddress) {
     const filterRevoke = contract.filters.AccessRevoked(null, patientAddress);
 
     const [reqLogs, grantLogs, revokeLogs] = await Promise.all([
-        contract.queryFilter(filterReq),
-        contract.queryFilter(filterGrant),
-        contract.queryFilter(filterRevoke)
+        contract.queryFilter(filterReq).catch(()=>[]),
+        contract.queryFilter(filterGrant).catch(()=>[]),
+        contract.queryFilter(filterRevoke).catch(()=>[])
     ]);
 
-    return { reqLogs, grantLogs, revokeLogs };
+    const logs = JSON.parse(localStorage.getItem("w2_logs") || "[]");
+    const formatLog = (l) => ({ args: [...l.args, l.timestamp] });
+    
+    const w2Req = logs.filter(l => l.type === "AccessRequested" && l.args[1] === patientAddress).map(formatLog);
+    const w2Grant = logs.filter(l => l.type === "AccessGranted" && l.args[1] === patientAddress).map(formatLog);
+    const w2Revoke = logs.filter(l => l.type === "AccessRevoked" && l.args[1] === patientAddress).map(formatLog);
+
+    return { 
+        reqLogs: [...reqLogs, ...w2Req], 
+        grantLogs: [...grantLogs, ...w2Grant], 
+        revokeLogs: [...revokeLogs, ...w2Revoke] 
+    };
 }
 
 export async function getDoctorRequestHistory(doctorAddress) {
@@ -164,12 +243,23 @@ export async function getDoctorRequestHistory(doctorAddress) {
     const filterRevoke = contract.filters.AccessRevoked(doctorAddress, null);
 
     const [reqLogs, grantLogs, revokeLogs] = await Promise.all([
-        contract.queryFilter(filterReq),
-        contract.queryFilter(filterGrant),
-        contract.queryFilter(filterRevoke)
+        contract.queryFilter(filterReq).catch(()=>[]),
+        contract.queryFilter(filterGrant).catch(()=>[]),
+        contract.queryFilter(filterRevoke).catch(()=>[])
     ]);
 
-    return { reqLogs, grantLogs, revokeLogs };
+    const logs = JSON.parse(localStorage.getItem("w2_logs") || "[]");
+    const formatLog = (l) => ({ args: [...l.args, l.timestamp] });
+    
+    const w2Req = logs.filter(l => l.type === "AccessRequested" && l.args[0] === doctorAddress).map(formatLog);
+    const w2Grant = logs.filter(l => l.type === "AccessGranted" && l.args[0] === doctorAddress).map(formatLog);
+    const w2Revoke = logs.filter(l => l.type === "AccessRevoked" && l.args[0] === doctorAddress).map(formatLog);
+
+    return { 
+        reqLogs: [...reqLogs, ...w2Req], 
+        grantLogs: [...grantLogs, ...w2Grant], 
+        revokeLogs: [...revokeLogs, ...w2Revoke] 
+    };
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────

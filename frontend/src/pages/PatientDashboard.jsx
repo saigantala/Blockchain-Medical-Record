@@ -38,7 +38,6 @@ export default function PatientDashboard() {
     };
 
     const fetchRecords = async () => {
-        if (user?.isWeb2) return;
         try {
             const hashes = await getRecordsOnChain(walletAddress);
             const formattedRecords = hashes.map(hash => ({
@@ -57,7 +56,6 @@ export default function PatientDashboard() {
     };
 
     const fetchRequests = async () => {
-        if (user?.isWeb2) return;
         try {
             const { reqLogs, grantLogs, revokeLogs } = await getRequestHistory(walletAddress);
             
@@ -110,10 +108,6 @@ export default function PatientDashboard() {
     const handleUpload = async (e) => {
         e.preventDefault();
         if (!uploadFile) return;
-        if (user?.isWeb2) {
-            showMsg("error", "Email users cannot write to the blockchain. Please log out and connect MetaMask.");
-            return;
-        }
         setUploading(true);
         try {
             // 1. Upload to IPFS
@@ -134,7 +128,6 @@ export default function PatientDashboard() {
     };
 
     const handleApprove = async (req) => {
-        if (user?.isWeb2) return showMsg("error", "Email users cannot sign blockchain transactions.");
         setActionLoading((p) => ({ ...p, [req._id]: true }));
         try {
             await grantAccess(req.doctorId.walletAddress);
@@ -148,7 +141,6 @@ export default function PatientDashboard() {
     };
 
     const handleReject = async (req) => {
-        if (user?.isWeb2) return showMsg("error", "Email users cannot sign blockchain transactions.");
         setActionLoading((p) => ({ ...p, [`r${req._id}`]: true }));
         try {
             // Reject is same as revoke essentially, or we just ignore. Wait, smart contract only has revoke.
@@ -164,7 +156,6 @@ export default function PatientDashboard() {
     };
 
     const handleRevoke = async (req) => {
-        if (user?.isWeb2) return showMsg("error", "Email users cannot sign blockchain transactions.");
         setActionLoading((p) => ({ ...p, [`v${req._id}`]: true }));
         try {
             await revokeAccess(req.doctorId.walletAddress);
@@ -187,7 +178,7 @@ export default function PatientDashboard() {
                 <div className="dashboard-header animate-in">
                     <div>
                         <h1>Patient Dashboard</h1>
-                        <p className="text-muted">Welcome, <strong>{user?.name}</strong> {user?.isWeb2 && <span className="badge badge-amber" style={{marginLeft: '10px'}}>Email User (Read-Only)</span>}</p>
+                        <p className="text-muted">Welcome, <strong>{user?.name}</strong> {user?.isWeb2 && <span className="badge badge-green" style={{marginLeft: '10px'}}>Email User</span>}</p>
                     </div>
                 </div>
 
