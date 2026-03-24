@@ -14,7 +14,7 @@ function getMockAddress(email) {
         hash = ((hash << 5) - hash) + email.charCodeAt(i);
         hash |= 0;
     }
-    return "0xW2B" + Math.abs(hash).toString(16).padStart(35, '0');
+    return "0x999999999999999999999999" + Math.abs(hash).toString(16).padStart(16, '0');
 }
 
 function saveMockLog(type, args) {
@@ -87,7 +87,7 @@ export async function registerOnChain(name, role) {
 }
 
 export async function getUserProfile(address) {
-    if (address && address.startsWith("0xW2B")) {
+    if (address && address.startsWith("0x9999999999")) {
         const users = JSON.parse(localStorage.getItem("medchain_users") || "[]");
         const match = users.find(u => getMockAddress(u.email) === address);
         if (match) return { name: match.name, role: match.role, isRegistered: true };
@@ -120,8 +120,10 @@ export async function getAllPatients() {
 
 export async function requestAccess(patientAddress) {
     const w2User = getWeb2User();
-    if (w2User) {
-        saveMockLog("AccessRequested", [getMockAddress(w2User.email), patientAddress]);
+    const isMockTarget = patientAddress && patientAddress.startsWith("0x9999999999");
+    if (w2User || isMockTarget) {
+        const caller = w2User ? getMockAddress(w2User.email) : await getConnectedAddress();
+        saveMockLog("AccessRequested", [caller, patientAddress]);
         return { wait: async () => true };
     }
     const contract = await getContract();
@@ -132,8 +134,10 @@ export async function requestAccess(patientAddress) {
 
 export async function grantAccess(doctorAddress) {
     const w2User = getWeb2User();
-    if (w2User) {
-        saveMockLog("AccessGranted", [doctorAddress, getMockAddress(w2User.email)]);
+    const isMockTarget = doctorAddress && doctorAddress.startsWith("0x9999999999");
+    if (w2User || isMockTarget) {
+        const caller = w2User ? getMockAddress(w2User.email) : await getConnectedAddress();
+        saveMockLog("AccessGranted", [doctorAddress, caller]);
         return { wait: async () => true };
     }
     const contract = await getContract();
@@ -144,8 +148,10 @@ export async function grantAccess(doctorAddress) {
 
 export async function revokeAccess(doctorAddress) {
     const w2User = getWeb2User();
-    if (w2User) {
-        saveMockLog("AccessRevoked", [doctorAddress, getMockAddress(w2User.email)]);
+    const isMockTarget = doctorAddress && doctorAddress.startsWith("0x9999999999");
+    if (w2User || isMockTarget) {
+        const caller = w2User ? getMockAddress(w2User.email) : await getConnectedAddress();
+        saveMockLog("AccessRevoked", [doctorAddress, caller]);
         return { wait: async () => true };
     }
     const contract = await getContract();
@@ -171,7 +177,7 @@ export async function addRecordOnChain(ipfsHash) {
 }
 
 export async function getRecordsOnChain(patientAddress) {
-    if (patientAddress && patientAddress.startsWith("0xW2B")) {
+    if (patientAddress && patientAddress.startsWith("0x9999999999")) {
         return JSON.parse(localStorage.getItem(`w2_records_${patientAddress}`) || "[]");
     }
     const contract = await getContract(false);
