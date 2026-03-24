@@ -39,7 +39,12 @@ export default function Register() {
             await loadSession(addr);
             navigate("/");
         } catch (err) {
-            setError(err.message || "Registration failed. Transaction might have been reverted.");
+            console.error(err);
+            if (err.code === "ACTION_REJECTED" || err.code === 4001) {
+                setError("Transaction cancelled. You rejected the request in MetaMask.");
+            } else {
+                setError("Registration failed. " + (err.shortMessage || err.message || "Unknown error."));
+            }
         } finally {
             setLoading(false);
         }
