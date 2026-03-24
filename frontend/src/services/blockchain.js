@@ -15,11 +15,17 @@ async function loadContractInfo() {
 }
 
 // ── Provider / Signer ────────────────────────────────────────────────────────
+let providerInstance = null;
+
 export async function getProvider() {
     if (!window.ethereum) {
         throw new Error("MetaMask not found. Please install the MetaMask extension.");
     }
-    return new ethers.BrowserProvider(window.ethereum);
+    if (!providerInstance) {
+        providerInstance = new ethers.BrowserProvider(window.ethereum, "any");
+        providerInstance.pollingInterval = 15000; // Increase polling interval to 15s to bypass strict rate limits on public testnets
+    }
+    return providerInstance;
 }
 
 export async function getSigner() {
