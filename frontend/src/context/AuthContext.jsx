@@ -45,7 +45,8 @@ export function AuthProvider({ children }) {
                     const userMatch = users.find(u => u.email === sessionEmail);
                     if (userMatch) {
                         setUser({ name: userMatch.name, role: userMatch.role, email: userMatch.email, isWeb2: true });
-                        setWalletAddress("Email User");
+                        const addr = await getConnectedAddress();
+                        setWalletAddress(addr);
                         setLoading(false);
                         return;
                     }
